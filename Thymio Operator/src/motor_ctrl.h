@@ -2,6 +2,8 @@
 #include <Arduino.h>
 
 namespace motor_ctrl {
+// Pilote reserve a la tache moteur sur core 1. Lectures inter-cores :
+// motor_runtime::get_ticks() ou motor_runtime::get_state().
 constexpr uint8_t MOTOR_COUNT = 2;
 // PWM 50 Hz / 16 bits : 1 tick = 20000 / 65536 us.
 // Plage commune aux deux sorties : ~500-2500 us.

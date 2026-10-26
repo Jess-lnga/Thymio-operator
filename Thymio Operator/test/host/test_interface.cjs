@@ -67,7 +67,18 @@ async function test() {
   await timer(0);
   state = {...state, phase:'HOME', busy:false, canCatch:true};
   await timer(100); assert.equal(elements.get('catch').disabled,false);
-  console.log('PASS interface: completion refresh, stalled request recovery, stale response rejected');
+  // Un acquittement differe ne doit pas etre annonce comme sauvegarde reussie.
+  state = {...state, busy:true, canCatch:false, commandPending:true, commandResult:'pending'};
+  await elements.get('form').onsubmit({preventDefault(){}});
+  assert.match(elements.get('message').textContent,/traitement en cours/);
+  assert.equal(elements.get('save').disabled,true);
+  state = {...state, busy:false, canCatch:true, commandPending:false, commandResult:'rejected'};
+  await timer(0);
+  assert.match(elements.get('message').textContent,/refusée/);
+  // Rejet termine juste avant la reponse HTTP 202 : ne pas afficher « sauvegarde ».
+  await elements.get('form').onsubmit({preventDefault(){}});
+  assert.match(elements.get('message').textContent,/refusée/);
+  console.log('PASS interface: completion refresh, stalled request recovery, stale response rejected, deferred acknowledgements');
 }
 module.exports = test;
 if (require.main === module) test().catch(error=>{console.error(error);process.exitCode=1;});

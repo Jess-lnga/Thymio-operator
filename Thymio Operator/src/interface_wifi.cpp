@@ -2,8 +2,10 @@
 
 #include <WebServer.h>
 #include <WiFi.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
-#include "arm_sequence.h"
+#include "motor_runtime.h"
 
 namespace interface_wifi {
 namespace {
@@ -40,7 +42,9 @@ async function request(path,body){
 }
 function fill(){state.settings.forEach((v,i)=>$('v'+i).value=v);dirty=false;}
 function render(s){
+ const wasPending=state&&state.commandPending;
  state=s;
+ if(wasPending&&!s.commandPending)notice(s.commandResult==='ok'?'Commande exécutée.':'Commande refusée par la tâche moteur.');
  if(!loaded){fill();loaded=true;}
  $('phase').textContent=s.phase;
  $('positions').textContent='Bras : '+s.positions[0]+' µs · Pince : '+s.positions[1]+' µs';
@@ -61,7 +65,7 @@ async function command(path,body){
  // Une ancienne lecture ne doit pas remplacer la reponse a la commande.
  if(pollController)pollController.abort();
  if(state)render(state);
- try{render(await request(path,body));notice(path==='/api/settings'?'Paramètres sauvegardés.':'Commande acceptée.');}
+ try{const s=await request(path,body);render(s);notice(s.commandPending?'Commande transmise, traitement en cours...':s.commandResult==='rejected'?'Commande refusée par la tâche moteur.':path==='/api/settings'?'Paramètres sauvegardés.':'Commande acceptée.');}
  catch(e){notice(e.message);}
  finally{pending=false;if(state)render(state);schedulePoll(0);}
 }
@@ -99,23 +103,44 @@ async function poll(){
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!pending){++revision;if(pollController)pollController.abort();schedulePoll(0);}});
 poll();
 </script></html>)HTML";
-void state() {
-  String json =
-      "{\"phase\":\"" + String(arm_sequence::phase()) + "\",\"busy\":";
-  json += arm_sequence::busy() ? "true" : "false";
+void state(int status = 200) {
+  // Un seul instantane : positions, boutons et parametres sont coherents.
+  const auto snapshot = motor_runtime::get_state();
+  String json = "{\"phase\":\"" + String(snapshot.phase) + "\",\"busy\":";
+  json += snapshot.busy ? "true" : "false";
   json += ",\"canCatch\":";
-  json += arm_sequence::canCatch() ? "true" : "false";
+  json += snapshot.canCatch ? "true" : "false";
   json += ",\"canRelease\":";
-  json += arm_sequence::canRelease() ? "true" : "false";
-  json += ",\"positions\":[" + String(arm_sequence::position(0)) + "," +
-          String(arm_sequence::position(1)) + "],\"settings\":[";
+  json += snapshot.canRelease ? "true" : "false";
+  json += ",\"commandPending\":";
+  json += snapshot.commandPending ? "true" : "false";
+  json += ",\"commandId\":" + String(snapshot.commandId);
+  json += ",\"commandResult\":\"";
+  switch (snapshot.commandResult) {
+    case motor_runtime::Result::OK:
+      json += "ok";
+      break;
+    case motor_runtime::Result::REJECTED:
+      json += "rejected";
+      break;
+    case motor_runtime::Result::PENDING:
+      json += "pending";
+      break;
+    default:
+      json += "unknown";
+      break;
+  }
+  json += "\",\"ticks\":[" + String(snapshot.ticks[0]) + "," +
+          String(snapshot.ticks[1]) + "]";
+  json += ",\"positions\":[" + String(snapshot.positions[0]) + "," +
+          String(snapshot.positions[1]) + "],\"settings\":[";
   for (uint8_t i = 0; i < arm_sequence::COUNT; ++i) {
     if (i) json += ',';
-    json += arm_sequence::settings().value[i];
+    json += snapshot.settings.value[i];
   }
   json += "]}";
   server.sendHeader("Cache-Control", "no-store");
-  server.send(200, "application/json", json);
+  server.send(status, "application/json", json);
 }
 bool number(const String& name, uint16_t& result) {
   if (!server.hasArg(name)) return false;
@@ -133,18 +158,41 @@ bool number(const String& name, uint16_t& result) {
 void error(const char* message, int code = 409) {
   server.send(code, "text/plain; charset=utf-8", message);
 }
+void dispatch(const motor_runtime::Command& command) {
+  uint32_t ticket;
+  if (!motor_runtime::submit(command, ticket)) {
+    error("Tâche moteur indisponible ou commande déjà en attente");
+    return;
+  }
+  const uint32_t started = millis();
+  motor_runtime::Result result;
+  do {
+    result = motor_runtime::get_result(ticket);
+    if (result != motor_runtime::Result::PENDING) break;
+    // Seule la tache web attend. Le core 1 continue ses mises a jour.
+    vTaskDelay(1);
+  } while (millis() - started < 1500);
+  if (result == motor_runtime::Result::OK) {
+    state();
+  } else if (result == motor_runtime::Result::PENDING) {
+    // Pas de reexecution : le navigateur suivra l'acquittement via /api/state.
+    state(202);
+  } else {
+    error(
+        "Commande refusée par la tâche moteur : état incompatible, paramètres "
+        "invalides ou erreur de sauvegarde");
+  }
+}
 void action() {
   const String name = server.arg("action");
   if (name != "catch" && name != "release") {
     error("Action inconnue", 400);
     return;
   }
-  if (!(name == "catch" ? arm_sequence::catchObject()
-                        : arm_sequence::releaseObject())) {
-    error("Action impossible dans l'état actuel");
-    return;
-  }
-  state();
+  motor_runtime::Command command;
+  command.type = name == "catch" ? motor_runtime::CommandType::CATCH
+                                 : motor_runtime::CommandType::RELEASE;
+  dispatch(command);
 }
 void manual() {
   uint16_t id, us;
@@ -153,11 +201,11 @@ void manual() {
     error("Consigne invalide", 400);
     return;
   }
-  if (!arm_sequence::manual(id, us)) {
-    error("Réglage manuel indisponible pendant un mouvement");
-    return;
-  }
-  state();
+  motor_runtime::Command command;
+  command.type = motor_runtime::CommandType::MANUAL;
+  command.motor = id;
+  command.us = us;
+  dispatch(command);
 }
 void save() {
   arm_sequence::Settings candidate{};
@@ -166,13 +214,10 @@ void save() {
       error("Paramètre manquant ou invalide", 400);
       return;
     }
-  if (!arm_sequence::save(candidate)) {
-    error(
-        "Sauvegarde refusée : mouvement en cours, valeurs invalides ou erreur "
-        "mémoire. Vérifier HOME > MIDDLE > OUT et CLOSED > OPEN.");
-    return;
-  }
-  state();
+  motor_runtime::Command command;
+  command.type = motor_runtime::CommandType::SAVE;
+  command.settings = candidate;
+  dispatch(command);
 }
 }  // namespace
 bool begin() {
@@ -183,7 +228,7 @@ bool begin() {
     return false;
   server.on("/", HTTP_GET,
             []() { server.send_P(200, "text/html; charset=utf-8", PAGE); });
-  server.on("/api/state", HTTP_GET, state);
+  server.on("/api/state", HTTP_GET, []() { state(); });
   server.on("/api/action", HTTP_POST, action);
   server.on("/api/manual", HTTP_POST, manual);
   server.on("/api/settings", HTTP_POST, save);

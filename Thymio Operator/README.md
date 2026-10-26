@@ -3,6 +3,39 @@
 Wi-Fi : **Thymio Arm**, mot de passe **micro452**, interface **http://192.168.4.1**.
 Signal du bras sur GPIO 25, pince sur GPIO 26. Servos toujours actifs.
 
+## Deux taches sur deux coeurs
+
+- `arm-web` sur **core 0**, priorite 1 : initialisation Wi-Fi, serveur HTTP et
+  reception des commandes. Aucun appel direct a la FSM ni aux PWM.
+- `arm-motors` sur **core 1**, priorite 2 : initialisation des servos, FSM,
+  affectation des PWM et sauvegarde Preferences, autorisee seulement au repos.
+  La tache s'execute toutes les 2 ms, les trajectoires progressent toutes les
+  20 ms. `loop()` ne fait que dormir.
+
+`motor_runtime.cpp/.h` contient les donnees statiques partagees et la passerelle :
+`get_ticks(0)` pour le bras, `get_ticks(1)` pour la pince, et `get_state()` pour
+une copie coherente de l'ensemble (positions, ticks, disponibilite, phase et
+parametres). Les getters ne renvoient aucune reference modifiable.
+
+Le serveur depose une copie de commande avec `submit()`. Une seule commande peut
+etre en attente : aucune n'est ecrasee, ni rejouee. La tache moteur la valide
+selon son etat reel, l'execute et publie son acquittement. Le serveur attend
+jusqu'a 1500 ms sans bloquer le core moteur ; si besoin il retourne un HTTP 202
+et l'interface suit le resultat sans retransmettre la commande.
+
+Les copies d'etat et la boite de commande utilisent un meme spinlock ESP32
+(`portMUX_TYPE`). Les sections critiques ne contiennent que des copies courtes,
+jamais d'appel reseau, PWM, flash ni d'attente. Ajouter seulement `volatile` aux
+variables n'assurerait pas cette synchronisation entre coeurs.
+
+Le moniteur serie a 115200 bauds affiche `Tache moteurs : core 1` et
+`Tache interface : core 0`. Si la tache moteur ne peut pas etre creee, le serveur
+n'est pas lance. La tache web attend que le premier etat moteur soit publie.
+
+Cette separation evite qu'une requete HTTP lente retarde la FSM. La reactivite
+visible reste aussi liee au Wi-Fi et au rafraichissement du navigateur ; le
+signal PWM lui-meme est toujours genere par le peripherique LEDC.
+
 Au demarrage, les consignes HOME et GRIP-CLOSED sauvegardees sont envoyees
 immediatement, puis les commandes sont verrouillees pendant 2 secondes.
 Le systeme ne connait pas la position physique au demarrage. Placer le mecanisme
@@ -56,6 +89,11 @@ l'interface et dans l'API. Les sequences continuent si le navigateur se deconnec
   (Visual Studio C++ requis). Les tests executent le vrai arm_sequence.cpp avec
   horloge, PWM et stockage simules : ordre Catch/Release, mouvements simultanes,
   verrouillages, limites, Save/rechargement, echecs et debordement de millis.
+  Un second executable teste le vrai `motor_runtime.cpp` avec plusieurs threads :
+  acces reserves au core moteur, copies coherentes, commandes non ecrasees,
+  acquittements, poursuite des mouvements sans interface et lectures concurrentes.
+- Interface : `node test/host/test_interface.cjs` (Node.js requis). Verification
+  de l'actualisation, des reprises reseau et des acquittements differes.
 - Avant utilisation : verifier sans objet les courses et temps de stabilisation,
   puis ajuster les pas selon la charge. La validation sur ordinateur ne mesure
   pas la vitesse physique des servos.

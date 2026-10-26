@@ -2,6 +2,8 @@
 #include <Arduino.h>
 
 namespace arm_sequence {
+// Etat prive de la tache moteur (core 1). Pour les autres taches, utiliser
+// motor_runtime : aucune fonction de ce module ne doit etre appelee du web.
 // Positions et pas en microsecondes ; pause en millisecondes.
 enum Setting : uint8_t {
   HOME,

@@ -14,6 +14,10 @@ if errorlevel 1 exit /b 1
 cl /nologo /EHsc /std:c++17 /I"$PSScriptRoot/mocks" /I"$project/src" "$PSScriptRoot/test_sequences.cpp" "$project/src/arm_sequence.cpp" /Fe:sequence_tests.exe
 if errorlevel 1 exit /b 1
 sequence_tests.exe
+if errorlevel 1 exit /b 1
+cl /nologo /EHsc /std:c++17 /I"$PSScriptRoot/mocks" /I"$project/src" "$PSScriptRoot/test_runtime.cpp" "$project/src/arm_sequence.cpp" "$project/src/motor_runtime.cpp" /Fe:runtime_tests.exe
+if errorlevel 1 exit /b 1
+runtime_tests.exe
 "@
 $runner = Join-Path $build 'run.cmd'
 Set-Content -LiteralPath $runner -Encoding ascii -Value $batch
