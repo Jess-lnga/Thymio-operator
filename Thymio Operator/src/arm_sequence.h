@@ -18,6 +18,7 @@ enum Setting : uint8_t {
   GRIP_OPEN,
   GRIP_CLOSE,
   SETTLE,
+  LOOP_PAUSE,
   COUNT
 };
 struct Settings {

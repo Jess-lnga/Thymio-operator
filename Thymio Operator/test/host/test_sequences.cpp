@@ -148,6 +148,27 @@ int main() {
   seq::begin();
   assert(seq::fault());
   assert(!seq::canCatch());
+  // Ancien format NVS v1 : garder les calibrations, ajouter la pause LOOP.
+  motor_ctrl::failEnable = false;
+  struct Legacy {
+    uint32_t version;
+    uint16_t values[12];
+  };
+  Legacy legacy = {1,
+                   {2450, 2030, 1440, 1530, 2000, 10, 8, 8, 10, 10, 10, 300}};
+  const auto* bytes = reinterpret_cast<const uint8_t*>(&legacy);
+  Preferences::bytes.assign(bytes, bytes + sizeof(legacy));
+  seq::begin();
+  finish();
+  assert(seq::settings().value[seq::HOME] == 2450);
+  assert(seq::settings().value[seq::LOOP_PAUSE] == 2000);
+  auto migrated = seq::settings();
+  migrated.value[seq::LOOP_PAUSE] = 3500;
+  assert(seq::save(migrated));
+  seq::begin();
+  finish();
+  assert(seq::settings().value[seq::HOME] == 2450);
+  assert(seq::settings().value[seq::LOOP_PAUSE] == 3500);
   std::cout << "PASS: startup, Catch/Release order, early gripper completion, "
                "interlocks, manual mode, validation, Save/reboot, storage/PWM "
                "failures, millis rollover\n";

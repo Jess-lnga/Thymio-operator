@@ -119,6 +119,92 @@ int main() {
   for (int i = 0; i < 40000 && !runtime::get_state().canCatch; ++i) tick();
   assert(runtime::get_state().canCatch);
 
+  auto send = [&](runtime::CommandType type) {
+    const auto ticket = submit(cmd(type));
+    tick();
+    return runtime::get_result(ticket);
+  };
+  auto until = [&](const char* phase) {
+    for (int i = 0; i < 100000; ++i) {
+      if (std::strstr(runtime::get_state().phase, phase)) return;
+      tick();
+    }
+    assert(false && "Loop phase not reached");
+  };
+  auto finishLoop = [&] {
+    for (int i = 0; i < 100000 && runtime::get_state().loopActive; ++i) tick();
+    const auto s = runtime::get_state();
+    assert(!s.loopActive && !s.loopStopping && s.canCatch && s.canLoop);
+    assert(s.positions[0] == s.settings.value[arm_sequence::HOME]);
+    assert(s.positions[1] == s.settings.value[arm_sequence::CLOSED]);
+  };
+  assert(send(runtime::CommandType::STOP) == runtime::Result::REJECTED);
+  assert(send(runtime::CommandType::LOOP) == runtime::Result::OK);
+  assert(runtime::get_state().canStop && !runtime::get_state().canLoop);
+  until("LOOP : pause avant Release");
+  auto rejected = cmd(runtime::CommandType::MANUAL);
+  rejected.us = 2400;
+  id = submit(rejected);
+  tick();
+  assert(runtime::get_result(id) == runtime::Result::REJECTED);
+  id = submit(save);
+  tick();
+  assert(runtime::get_result(id) == runtime::Result::REJECTED);
+  assert(send(runtime::CommandType::CATCH) == runtime::Result::REJECTED);
+  assert(send(runtime::CommandType::RELEASE) == runtime::Result::REJECTED);
+  assert(send(runtime::CommandType::LOOP) == runtime::Result::REJECTED);
+  until("LOOP : pause avant Catch");
+  const uint32_t homeAt = fakeMillis;
+  for (int i = 0; i < 999; ++i) tick();
+  assert(fakeMillis - homeAt == 1998);
+  assert(std::strstr(runtime::get_state().phase, "pause avant Catch"));
+  tick();
+  assert(std::strstr(runtime::get_state().phase, "HOME vers MIDDLE"));
+  until("LOOP : pause avant Release");
+  for (int i = 0; i < 999; ++i) tick();
+  assert(std::strstr(runtime::get_state().phase, "pause avant Release"));
+  tick();
+  assert(std::strstr(runtime::get_state().phase, "Release : vers OUT"));
+  assert(send(runtime::CommandType::STOP) == runtime::Result::OK);
+  finishLoop();
+
+  // STOP a chacune des phases termine toujours la paire Catch-Release a HOME.
+  const char* phases[] = {"HOME vers MIDDLE",        "vers OUT + ouverture",
+                          "fermeture de la pince",   "Catch : retour MIDDLE",
+                          "pause avant Release",     "Release : vers OUT",
+                          "Release : ouverture",     "Release : retour MIDDLE",
+                          "retour HOME + fermeture", "pause avant Catch"};
+  for (const char* phase : phases) {
+    assert(send(runtime::CommandType::LOOP) == runtime::Result::OK);
+    until(phase);
+    assert(send(runtime::CommandType::STOP) == runtime::Result::OK);
+    if (runtime::get_state().loopActive)
+      assert(runtime::get_state().loopStopping);
+    finishLoop();
+    for (int i = 0; i < 1100; ++i) tick();
+    assert(runtime::get_state().canCatch && !runtime::get_state().loopActive);
+  }
+  // Pause personnalisable, sauvegardee, et comparaison temporelle avec
+  // rollover.
+  save.settings = runtime::get_state().settings;
+  save.settings.value[arm_sequence::LOOP_PAUSE] = 60001;
+  id = submit(save);
+  tick();
+  assert(runtime::get_result(id) == runtime::Result::REJECTED);
+  save.settings.value[arm_sequence::LOOP_PAUSE] = 0;
+  id = submit(save);
+  tick();
+  assert(runtime::get_result(id) == runtime::Result::OK);
+  mockCore = 1;
+  runtime::begin();
+  for (int i = 0; i < 1000; ++i) tick();
+  assert(runtime::get_state().settings.value[arm_sequence::LOOP_PAUSE] == 0);
+  fakeMillis = 0xFFFFFF00u;
+  assert(send(runtime::CommandType::LOOP) == runtime::Result::OK);
+  until("Release : vers OUT");
+  assert(send(runtime::CommandType::STOP) == runtime::Result::OK);
+  finishLoop();
+
   // Lecteurs et producteur concurrents pendant que le vrai runtime publie.
   std::atomic<bool> stop{false};
   std::atomic<unsigned> reads{0};

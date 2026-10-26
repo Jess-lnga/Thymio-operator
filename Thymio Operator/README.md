@@ -49,6 +49,13 @@ dans une situation permettant ce retour avant de mettre sous tension.
 - Release exige un Catch termine : MIDDLE -> OUT, ouverture, retour MIDDLE pince
   ouverte, puis retour HOME et **fermeture** simultanes. Cette fermeture interprete
   la derniere etape de la demande, qui repetait une ouverture deja effectuee.
+- LOOP exige HOME + GRIP-CLOSED et repete Catch -> pause -> Release -> pause.
+  Le bouton devient STOP. STOP termine la paire Catch-Release engagee et s'arrete
+  a HOME + GRIP-CLOSED. Pendant la pause a HOME, il arrete immediatement la boucle
+  sans lancer un nouveau Catch. Le bouton indique « Arret en cours » jusqu'au
+  retour. Les commandes manuelles et Save sont verrouilles pendant toute la boucle,
+  y compris les pauses. La boucle continue si le navigateur est deconnecte et
+  n'est jamais relancee automatiquement apres un redemarrage.
 - Aucun capteur ne confirme la position ni la presence d'un objet. Les pauses
   permettent aux servos de suivre les consignes, mais doivent etre calibrees sur
   le montage reel.
@@ -58,6 +65,10 @@ dans une situation permettant ce retour avant de mettre sous tension.
 Positions en microsecondes. Valeurs initiales : HOME 2400, MIDDLE 2030, OUT 1440,
 GRIP-OPEN 1530, GRIP-CLOSED 2000. Plage des deux sliders : 500 a 2500 us.
 La conversion PWM utilise 50 Hz sur 16 bits (1 tick = 20000/65536 us).
+Le champ **Pause LOOP (ms)** regle les deux attentes entre Catch et Release,
+puis entre Release et le Catch suivant : 2000 ms par defaut, de 0 a 60000 ms,
+enregistre uniquement avec Save. Le nouveau format reprend les calibrations
+deja sauvegardees par les anciennes versions, sans les remettre a zero.
 
 Chaque sens de trajet du bras et chaque sens de la pince disposent d'un pas
 independant, exprime en us par periode de 20 ms (1 a 100). Un pas plus grand

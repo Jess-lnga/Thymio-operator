@@ -6,7 +6,9 @@
 
 namespace arm_sequence {
 namespace {
-Settings config = {{2400, 2030, 1440, 1530, 2000, 10, 8, 8, 10, 10, 10, 300}};
+constexpr Settings DEFAULTS = {
+    {2400, 2030, 1440, 1530, 2000, 10, 8, 8, 10, 10, 10, 300, 2000}};
+Settings config = DEFAULTS;
 enum class Phase {
   BOOT,
   IDLE,
@@ -25,10 +27,15 @@ bool holding = false;
 uint16_t pos[2] = {2400, 2000};
 uint16_t startPos[2], target[2];
 uint32_t duration[2], started, total;
-constexpr uint32_t VERSION = 1;
+constexpr uint32_t VERSION = 2;
 struct Stored {
   uint32_t version;
   Settings settings;
+};
+// Ancien format conserve pour ne pas perdre les calibrations deja sauvegardees.
+struct LegacyStored {
+  uint32_t version;
+  uint16_t value[12];
 };
 
 bool valid(const Settings& c) {
@@ -39,7 +46,8 @@ bool valid(const Settings& c) {
     return false;
   for (uint8_t i = HOME_MIDDLE; i <= GRIP_CLOSE; ++i)
     if (c.value[i] < 1 || c.value[i] > 100) return false;
-  return c.value[SETTLE] >= 100 && c.value[SETTLE] <= 3000;
+  return c.value[SETTLE] >= 100 && c.value[SETTLE] <= 3000 &&
+         c.value[LOOP_PAUSE] <= 60000;
 }
 void write(uint8_t i, uint16_t us) {
   pos[i] = us;
@@ -80,6 +88,7 @@ bool canRelease() {
          pos[1] == config.value[CLOSED];
 }
 void begin() {
+  config = DEFAULTS;
   Preferences prefs;
   if (prefs.begin("thymio-arm", true)) {
     Stored stored{};
@@ -87,6 +96,16 @@ void begin() {
         prefs.getBytes("settings", &stored, sizeof(stored)) == sizeof(stored) &&
         stored.version == VERSION && valid(stored.settings))
       config = stored.settings;
+    else if (prefs.getBytesLength("settings") == sizeof(LegacyStored)) {
+      LegacyStored legacy{};
+      Settings migrated = DEFAULTS;
+      if (prefs.getBytes("settings", &legacy, sizeof(legacy)) ==
+              sizeof(legacy) &&
+          legacy.version == 1) {
+        for (uint8_t i = 0; i < 12; ++i) migrated.value[i] = legacy.value[i];
+        if (valid(migrated)) config = migrated;
+      }
+    }
     prefs.end();
   }
   current = Phase::BOOT;
@@ -150,10 +169,9 @@ void update() {
   }
   // MIDDLE est un point de passage, pas un arret. En fin de sequence,
   // rendre aussi la commande suivante disponible des la derniere consigne.
-  const bool noPause = current == Phase::CATCH_HOME_MIDDLE ||
-                       current == Phase::CATCH_RETURN ||
-                       current == Phase::RELEASE_MIDDLE ||
-                       current == Phase::RELEASE_HOME_CLOSE;
+  const bool noPause =
+      current == Phase::CATCH_HOME_MIDDLE || current == Phase::CATCH_RETURN ||
+      current == Phase::RELEASE_MIDDLE || current == Phase::RELEASE_HOME_CLOSE;
   const uint32_t pause = noPause ? 0 : config.value[SETTLE];
   if (fault() || elapsed < total + pause) return;
   switch (current) {

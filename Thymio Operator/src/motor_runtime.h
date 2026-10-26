@@ -6,7 +6,7 @@
 // Seule passerelle entre le serveur (core 0) et les moteurs (core 1).
 // Les getters retournent des copies, jamais des references vers l'etat partage.
 namespace motor_runtime {
-enum class CommandType : uint8_t { CATCH, RELEASE, MANUAL, SAVE };
+enum class CommandType : uint8_t { CATCH, RELEASE, MANUAL, SAVE, LOOP, STOP };
 enum class Result : uint8_t { UNKNOWN, PENDING, OK, REJECTED };
 struct Command {
   CommandType type = CommandType::CATCH;
@@ -20,6 +20,10 @@ struct Snapshot {
   bool canCatch = false;
   bool canRelease = false;
   bool commandPending = false;
+  bool loopActive = false;
+  bool loopStopping = false;
+  bool canLoop = false;
+  bool canStop = false;
   uint16_t ticks[2] = {};
   uint16_t positions[2] = {};
   arm_sequence::Settings settings{};

@@ -20,11 +20,11 @@ async function test() {
     }
   }
   for (const id of ['phase','positions','catch','release','fields','save','cancel',
-      'message','sliders','values','form','main','settings','mainTab','settingsTab']) {
+      'message','sliders','values','form','main','settings','mainTab','settingsTab','loop','loopStatus']) {
     const e = new Element(); e.id = id;
   }
   let state = { phase:'Catch', busy:true, canCatch:false, canRelease:false,
-    positions:[2030,2000], settings:[2400,2030,1440,1530,2000,10,8,8,10,10,10,300] };
+    positions:[2030,2000], settings:[2400,2030,1440,1530,2000,10,8,8,10,10,10,300,2000] };
   const context = vm.createContext({
     document: {getElementById:id=>elements.get(id), createElement:()=>new Element(),
       activeElement:null, addEventListener(){}},
@@ -78,6 +78,22 @@ async function test() {
   // Rejet termine juste avant la reponse HTTP 202 : ne pas afficher « sauvegarde ».
   await elements.get('form').onsubmit({preventDefault(){}});
   assert.match(elements.get('message').textContent,/refusée/);
+  state = {...state, commandResult:'ok', busy:true, loopActive:true, loopStopping:false,
+    canStop:true, canLoop:false, canCatch:false};
+  await timer(0);
+  assert.equal(elements.get('loop').textContent,'STOP');
+  assert.equal(elements.get('loop').disabled,false);
+  assert.equal(elements.get('catch').disabled,true);
+  assert.equal(elements.get('fields').disabled,true);
+  assert.equal(Number(elements.get('v12').value),2000);
+  state = {...state, loopStopping:true, canStop:false};
+  await elements.get('loop').onclick();
+  assert.equal(elements.get('loop').disabled,true);
+  assert.match(elements.get('loop').textContent,/Arrêt/);
+  state = {...state, loopActive:false,loopStopping:false,busy:false,canLoop:true,canCatch:true};
+  await timer(0);
+  assert.equal(elements.get('loop').textContent,'LOOP');
+  assert.equal(elements.get('loop').disabled,false);
   console.log('PASS interface: completion refresh, stalled request recovery, stale response rejected, deferred acknowledgements');
 }
 module.exports = test;
