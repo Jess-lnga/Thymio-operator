@@ -108,3 +108,10 @@ l'interface et dans l'API. Les sequences continuent si le navigateur se deconnec
 - Avant utilisation : verifier sans objet les courses et temps de stabilisation,
   puis ajuster les pas selon la charge. La validation sur ordinateur ne mesure
   pas la vitesse physique des servos.
+
+## Coordinateur PC Thymio + bras
+
+Une interface Python/Tkinter relie la FSM du Thymio au bras via Wi-Fi/HTTP.
+Installation, modes, calibration, navette et limites physiques : [pysrc/README.md](pysrc/README.md).
+Lancement : `py pysrc/thymio_operator.py` (ou double-clic sur `pysrc/start_gui.cmd`).
+Les commandes du coordinateur vers le bras sont limitees a Catch et Release.

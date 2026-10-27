@@ -112,11 +112,17 @@ async function poll(){
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!pending){++revision;if(pollController)pollController.abort();schedulePoll(0);}});
 poll();
 </script></html>)HTML";
-void state(int status = 200) {
+void state(int status = 200, uint32_t acceptedTicket = 0) {
   // Un seul instantane : positions, boutons et parametres sont coherents.
   const auto snapshot = motor_runtime::get_state();
   String json = "{\"phase\":\"" + String(snapshot.phase) + "\",\"busy\":";
   json += snapshot.busy ? "true" : "false";
+  json += ",\"protocolVersion\":1,\"ready\":";
+  json += snapshot.ready ? "true" : "false";
+  json += ",\"fault\":";
+  json += snapshot.fault ? "true" : "false";
+  // Le ticket recu par CE POST, distinct d'une lecture concurrente de l'etat.
+  json += ",\"acceptedCommandId\":" + String(acceptedTicket);
   json += ",\"canCatch\":";
   json += snapshot.canCatch ? "true" : "false";
   json += ",\"canRelease\":";
@@ -190,10 +196,10 @@ void dispatch(const motor_runtime::Command& command) {
     vTaskDelay(1);
   } while (millis() - started < 1500);
   if (result == motor_runtime::Result::OK) {
-    state();
+    state(200, ticket);
   } else if (result == motor_runtime::Result::PENDING) {
     // Pas de reexecution : le navigateur suivra l'acquittement via /api/state.
-    state(202);
+    state(202, ticket);
   } else {
     error(
         "Commande refusée par la tâche moteur : état incompatible, paramètres "
@@ -212,6 +218,26 @@ void action() {
                  : name == "release" ? motor_runtime::CommandType::RELEASE
                  : name == "loop"    ? motor_runtime::CommandType::LOOP
                                      : motor_runtime::CommandType::STOP;
+  dispatch(command);
+}
+// API du coordinateur PC : aucune position ni commande manuelle exposee ici.
+// L'interface web historique conserve ses routes et son comportement.
+void robotAction() {
+  const String name = server.arg("action");
+  if (name != "catch" && name != "release") {
+    error("Le robot ne peut demander que catch ou release", 400);
+    return;
+  }
+  const auto snapshot = motor_runtime::get_state();
+  if (!snapshot.ready || snapshot.fault || snapshot.busy ||
+      snapshot.commandPending || snapshot.loopActive ||
+      (name == "catch" ? !snapshot.canCatch : !snapshot.canRelease)) {
+    error("Bras indisponible ou action incompatible");
+    return;
+  }
+  motor_runtime::Command command;
+  command.type = name == "catch" ? motor_runtime::CommandType::CATCH
+                                 : motor_runtime::CommandType::RELEASE;
   dispatch(command);
 }
 void manual() {
@@ -249,6 +275,8 @@ bool begin() {
   server.on("/", HTTP_GET,
             []() { server.send_P(200, "text/html; charset=utf-8", PAGE); });
   server.on("/api/state", HTTP_GET, []() { state(); });
+  server.on("/api/robot/state", HTTP_GET, []() { state(); });
+  server.on("/api/robot/action", HTTP_POST, robotAction);
   server.on("/api/action", HTTP_POST, action);
   server.on("/api/manual", HTTP_POST, manual);
   server.on("/api/settings", HTTP_POST, save);

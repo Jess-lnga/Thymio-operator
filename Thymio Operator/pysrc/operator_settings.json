@@ -1,0 +1,22 @@
+{
+  "forward_speed": 150,
+  "steering_gain": 150.0,
+  "max_speed": 400,
+  "end_black_ratio": 0.35,
+  "end_confirm_s": 0.25,
+  "calibration_s": 3.0,
+  "obstacle_threshold": 1800,
+  "contact_threshold": 3500,
+  "approach_speed": 35,
+  "approach_timeout_s": 4.0,
+  "reverse_speed": 100,
+  "reverse_s": 1.5,
+  "marker_reverse_s": 0.6,
+  "turn_speed": 100,
+  "turn_s": 4.55,
+  "marker_ignore_s": 0.6,
+  "obstacle_ignore_s": 2.0,
+  "arm_timeout_s": 90.0,
+  "arm_url": "http://192.168.4.1",
+  "robot_name": ""
+}

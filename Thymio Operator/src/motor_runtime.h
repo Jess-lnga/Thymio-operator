@@ -16,6 +16,7 @@ struct Command {
 };
 struct Snapshot {
   bool ready = false;
+  bool fault = false;
   bool busy = true;
   bool canCatch = false;
   bool canRelease = false;

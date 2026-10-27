@@ -70,6 +70,7 @@ Snapshot capture() {
   // Aucun acces depuis la tache web aux fonctions de la FSM ou du pilote PWM.
   Snapshot next;
   next.ready = true;
+  next.fault = arm_sequence::fault();
   next.loopActive = loopActive();
   next.loopStopping = stopRequested;
   next.canLoop = !loopActive() && arm_sequence::canCatch();
